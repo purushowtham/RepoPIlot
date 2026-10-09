@@ -8,13 +8,13 @@ RepoPilot runs real AI planning, coding, and review calls against a GitHub repos
 
 The running workspace is at http://127.0.0.1:5173.
 
-1. Open **Live setup**. If you are using the previous temporary demo account, save a permanent email/password there; existing history stays with the account.
+1. The app opens your workspace automatically, without a login page. Open **Live setup** to configure integrations.
 2. Enter your model ID, model API key, and repository-scoped GitHub token. Keys are password fields and are not returned after saving. They are encrypted locally using Fernet; the local encryption key and vault have mode 0600.
 3. Select **Save connections securely**, then **Verify connections**. Verification makes a small real model request and checks GitHub authentication; provider charges may apply. The Docker readiness check confirms the runtime and sandbox image are available.
 4. Connect your real Python repository, submit an issue, and launch the workflow.
 5. Inspect the plan, patch, actual test evidence, and review. Approve only if you want a new branch and draft PR. Nothing is merged automatically.
 
-The earliest permanent local account owns server connection settings. Other accounts cannot change credentials or consume the live server integrations. A temporary demo account must become permanent before storing real credentials.
+Direct loopback access opens the existing local owner workspace and preserves its history. Public or forwarded visitors receive separate guest workspaces and cannot use the owner’s integrations, repositories, or approval queue. Authentication sessions and ownership checks remain on the backend; there is no sign-in or sign-out screen in the UI.
 
 ## Start or restart from the project folder
 

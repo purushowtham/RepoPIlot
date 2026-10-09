@@ -1,4 +1,7 @@
 from contextlib import asynccontextmanager
+import os
+from urllib.parse import urlparse
+from uuid import uuid4
 from fastapi import FastAPI, Depends, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -142,6 +145,44 @@ def me(account=Depends(user)):
     with Session() as db:
         u = db.get(User, account)
         return {"id": account, "email": u.email}
+
+
+def local_workspace_request(request: Request):
+    # Owner access is limited to direct, loopback requests with a local Host and
+    # Origin. A forwarded/cloud request must never become the local owner.
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+    origin = request.headers.get("origin")
+    return bool(
+        os.getenv("VERCEL") != "1"
+        and request.client
+        and request.client.host in {"127.0.0.1", "::1"}
+        and request.url.hostname in local_hosts
+        and not any(name in request.headers for name in ("forwarded", "x-forwarded-for", "x-vercel-id"))
+        and (not origin or urlparse(origin).hostname in local_hosts)
+        and request.headers.get("sec-fetch-site") != "cross-site"
+    )
+
+
+@app.post(PREFIX + "/auth/workspace")
+def open_workspace(request: Request, response: Response):
+    identity = verify(request.cookies.get("repopilot_session", ""))
+    with Session.begin() as db:
+        account = db.get(User, identity) if identity else None
+        if not account:
+            if local_workspace_request(request):
+                account = operator_account(db)
+                if not account:
+                    account = User(email="workspace@repopilot.local", password_hash=password_hash(os.urandom(32).hex()))
+            else:
+                # Public visitors get a private browser session, never the
+                # operator's repositories, history, credentials, or approvals.
+                account = User(email=f"guest-{uuid4()}@repopilot.local", password_hash=password_hash(os.urandom(32).hex()))
+            db.add(account)
+            db.flush()
+        result = sign_in(response, account)
+        if config.MODE == "demo" and not db.scalar(select(Repository).where(Repository.user_id == account.id)):
+            db.add(Repository(user_id=account.id, full_name="demo/login-service", default_branch="main"))
+        return result
 
 
 @app.get(PREFIX + "/health")
@@ -369,7 +410,7 @@ def require_operator(account):
 
 
 @app.post(PREFIX + "/settings/connections")
-def configure_connections(body: ConnectionInput, account=Depends(user)):
+def configure_connections(body: ConnectionInput, request: Request, account=Depends(user)):
     require_operator(account)
     with Session() as db:
         active = db.scalar(
@@ -381,7 +422,7 @@ def configure_connections(body: ConnectionInput, account=Depends(user)):
         raise HTTPException(409, "Finish or cancel pending workflows before changing their connections")
     with Session() as db:
         owner = db.get(User, account)
-        if owner.email.startswith("demo-") and owner.email.endswith("@repopilot.local"):
+        if owner.email.startswith("demo-") and owner.email.endswith("@repopilot.local") and not local_workspace_request(request):
             raise HTTPException(409, "Create a permanent account in Live setup before saving credentials")
     save_connections(body)
     return {
@@ -442,9 +483,9 @@ def verify_connections(account=Depends(user)):
 
 def operator_account(db):
     permanent = db.scalar(
-        select(User).where(~User.email.like("demo-%@repopilot.local")).order_by(User.created_at).limit(1)
+        select(User).where(~User.email.like("demo-%@repopilot.local"), ~User.email.like("guest-%@repopilot.local")).order_by(User.created_at).limit(1)
     )
-    return permanent or db.scalar(select(User).order_by(User.created_at).limit(1))
+    return permanent or db.scalar(select(User).where(~User.email.like("guest-%@repopilot.local")).order_by(User.created_at).limit(1))
 
 
 @app.post(PREFIX + "/auth/claim")
