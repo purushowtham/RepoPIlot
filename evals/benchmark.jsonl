@@ -1,0 +1,1 @@
+{"id":"missing-email","repository":"demo/login-service","issue":"Handle missing email without HTTP 500; validate blank and non-string values; preserve valid normalization; add regression tests.","acceptance":["missing input returns 400","invalid values return 400","valid login unchanged"],"scope":"seeded fixture; not a general coding benchmark"}
